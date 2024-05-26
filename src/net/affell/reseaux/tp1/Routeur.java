@@ -42,16 +42,21 @@ public class Routeur {
         }
 
         try {
+            // Création des instances Serveur et Client
             this.server = new Server(name, port, false);
             server.getLogger().setEnable(false);
+            // Interception des événements du serveur
             server.getEventsManager().registerListener(new ServerListener(this));
+            // Démarrage de l'écoute des connexions entrantes
             server.startSocketListener();
             System.out.println("Routeur " + name + " à l'écoute sur le port " + port);
 
             this.client = new Client("Client", false);
             client.getLogger().setEnable(false);
+            // Interception des événements du client
             client.getEventsManager().registerListener(new ClientListener(this));
 
+            // Lecture de l'entrée de l'utilisateur
             Scanner scanner = new Scanner(System.in);
             String line;
             while ((line = scanner.nextLine()) != null) {
@@ -63,6 +68,7 @@ public class Routeur {
     }
 
     public void handleCommand(String line) {
+        // Gère les commandes de l'utilisateur
         String[] s = line.split(" ");
         switch (s[0]) {
             case "help" -> System.out.println("Liste des commandes :\n\nhelp -> Affiche cette aide\nlist -> Liste les connexions établies entrantes et sortantes\nping <routeur> -> Envoie une requête ping sur le routeur précisé\nconnect <ip> <port> -> Établit une connexion sur le routeur cible précisé\nsend <routeur> <message> -> Envoie un message au routeur spécifié\ntraceroute <routeur> -> Affiche la route pour communiquer avec le routeur précisé\nshowroutes -> Affiche la table de routage dynamique");
@@ -72,8 +78,10 @@ public class Routeur {
                 }
 
                 System.out.println("PING " + s[1] + " :");
-                waitReply = true;
+                waitReply = true; // Le routeur attend une réponse
+                // On envoie le PING avec la logique de parcours en profondeur si la cible n'est pas un voisin direct
                 dispatchCommand(server.getName(), s[1], Collections.singletonList(server.getName()), "ping", server.getName(), s[1], server.getName(), String.valueOf(System.nanoTime()));
+                // On attend 3s
                 int i = 0;
                 while (waitReply) {
                     if (i == 30) {
@@ -116,6 +124,7 @@ public class Routeur {
                     String ip = s[1];
                     int port = Integer.parseInt(s[2]);
                     try {
+                        // Connexion à un routeur avec l'instance du Client
                         SocketWorker worker = client.addSocketWorker(ip, port);
                         System.out.print("Tentative de connexion...\r");
                         worker.startWorker();
@@ -133,6 +142,8 @@ public class Routeur {
                         throw new NumberFormatException();
                     }
                     String message = Arrays.stream(s).skip(2).collect(Collectors.joining(" "));
+
+                    // Recherche du routeur cible dans les voisins directs
                     IResponseWorker worker = null;
                     for (Object o : routage.keySet()) {
                         if (s[1].equals(routage.get((IResponseWorker) o))) {
@@ -141,7 +152,7 @@ public class Routeur {
                         }
                     }
 
-
+                    // Si la cible n'est pas un voisin direct, le message ne peut pas être envoyé
                     if (worker == null) {
                         System.err.println("Nom de routeur invalide");
                         return;
@@ -159,6 +170,7 @@ public class Routeur {
                     System.err.println("Usage: traceroute <routeur>");
                 }
                 System.out.println("Route to " + s[1] + " :");
+                // Envoi de la commande trace qui va atteindre la cible et renvoyer le chemin parcouru
                 dispatchCommand(server.getName(), s[1], Collections.singletonList(server.getName()), "trace", server.getName(), s[1], server.getName());
             }
             case "showroutes" -> routage.forEach((worker, name) -> {
@@ -173,12 +185,22 @@ public class Routeur {
         }
     }
 
+    /**
+     * Gère l'envoi d'une commande à n'importe quel routeur sur le réseau
+     * @param source Envoyeur
+     * @param target Cible
+     * @param path Chemin déjà emprunté par la commande
+     * @param command Commande
+     * @param args Arguments
+     */
     public void dispatchCommand(String source, String target, List<String> path, String command, String... args) {
-        boolean broadcast = !routage.containsValue(target);
+        boolean broadcast = !routage.containsValue(target); // Vrai si la cible n'est pas un voisin direct
         if (broadcast && cache.containsKey(target) && !path.contains(routage.getOrDefault(((IResponseWorker) cache.get(target)), ""))) {
+            // Cache hit, on connait quel routeur dans nos voisins direct permet d'atteindre la cible de facon optimale
             ((IResponseWorker) cache.get(target)).sendCommand(command, args);
             return;
         }
+        // Cache miss, on va "broadcast" la commande à tous nos voisins qui ne sont pas dans le chemin déjà emprunté de la commande
         routage.keySet().forEach(w -> {
             if (!path.contains(routage.get((IResponseWorker) w)) && !source.equals(routage.get((IResponseWorker) w)) && (broadcast || target.equals(routage.get((IResponseWorker) w)))) {
                 ((IResponseWorker) w).sendCommand(command, args);
@@ -187,7 +209,9 @@ public class Routeur {
     }
 
     public void updateCache(List<String> path) {
+        // Si on reçoit une commande envoyée avec "dispatchCommand", on peut lire le chemin déjà emprunté et en déduire les chemins optimaux pour rejoindre les routeurs mentionnés dans ce chemin
         if (path.size() <= 1) return;
+        // On détermine l'instance IResponseWorker (Client ou Serveur) du dernier routeur dans le chemin
         IResponseWorker worker = null;
         for (Object o : routage.keySet()) {
             if (path.get(path.size() - 1).equals(routage.get((IResponseWorker) o))) {
@@ -198,6 +222,7 @@ public class Routeur {
         if (worker == null) {
             return;
         }
+        // On attribue à tous les autres routeurs du chemin le dernier routeur comme point de passage optimal
         for (int i = path.size() - 2; i >= 0; i--) {
             if (!cache.containsKey(path.get(i))) {
                 cache.put(path.get(i), worker);

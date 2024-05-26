@@ -27,16 +27,19 @@ public class CommandManager {
                 System.out.println("> Message reçu du routeur " + routeur.getRoutage().getOrDefault(worker, "") + " (" + targetIp + ") : \"" + args[0] + "\"");
             }
             case "ping" -> {
+                // Format de la commande : ping <source> <cible> <chemin> <timestamp d'envoi>
                 if (args.length != 4) return;
                 List<String> path = Arrays.stream(args[2].split(",")).collect(Collectors.toList());
                 if (args[1].equals(routeur.getServer().getName())) {
+                    // Ce routeur est la cible du ping
                     routeur.updateCache(path);
                     try {
                         worker.sendCommand("pong", args[1], args[0], routeur.getServer().getName(), host, String.valueOf(System.nanoTime() - Long.parseLong(args[3])));
                     } catch (NumberFormatException ignored) {
                     }
                 } else {
-                    if (!path.contains(routeur.getServer().getName())) {
+                    // On relaie la commande car ce routeur n'est pas la cible
+                    if (!path.contains(routeur.getServer().getName())) { // Si le chemin nous contient déjà, c'est que la commande a fait un tour sur le réseau et n'a pas trouvé la cible, on ne relaie pas
                         routeur.updateCache(path);
                         path.add(routeur.getServer().getName());
                         args[2] = String.join(",", path);
@@ -45,13 +48,16 @@ public class CommandManager {
                 }
             }
             case "pong" -> {
+                // Format de la commande : pong <source> <cible> <chemin> <timestamp d'envoi>
                 if (args.length != 5) return;
                 List<String> path = Arrays.stream(args[2].split(",")).collect(Collectors.toList());
                 if (args[1].equals(routeur.getServer().getName()) && routeur.waitReply) {
+                    // Ce routeur est la cible du pong
                     routeur.updateCache(path);
                     routeur.waitReply = false;
                     System.out.println("PONG from " + args[0] + "(" + new StringBuilder(args[2]).reverse() + "): time=" + (Long.parseLong(args[4]) / 1000000D) + "ms");
                 } else {
+                    // On relaie la commande car ce routeur n'est pas la cible
                     if (!path.contains(routeur.getServer().getName())) {
                         routeur.updateCache(path);
                         path.add(routeur.getServer().getName());
